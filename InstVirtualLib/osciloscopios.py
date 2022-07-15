@@ -232,7 +232,9 @@ class GW_Instek(osciloscopio):
         print("Base de tiempo: ",time)
         
         self.write(':ACQ%s:MEM?'%canal)
-        memoria_canal = self.read_bytes(8014, break_term=True)
+        # cotti
+        # El valor anterior de break_term era True, y salia por error "buffer is smaller than requested size"
+        memoria_canal = self.read_bytes(8014, break_term=False) #cotti
         print("Leidos %d datos"%len(memoria_canal))
         
         tension_volt = self.Parsear_canal(memoria_canal, offset, scale, 2000, VERBOSE)
@@ -267,7 +269,7 @@ class GW_Instek(osciloscopio):
         
         if VERBOSE:
             print("Header decodificado:")
-            print(str(chr(h)), str(chr(f)), str(chr(nn[0])), str(chr(nn[1])), str(chr(nn[2])), str(chr(nn[3])), t, ch)
+            #print(str(chr(h)), str(chr(f)), str(chr(nn[0])), str(chr(nn[1])), str(chr(nn[2])), str(chr(nn[3])), t, ch)
 
         # Ahora convertimos los valores del ADC a volts
         #   is ADCgain the ADC mapping of 10 volts range onto 256 8-bit values
@@ -283,6 +285,7 @@ class GW_Instek(osciloscopio):
         v = offset + memoria_np_canal*scale*ADCgain;
     
         if VERBOSE:
+            pass
             print(memoria_np_canal.shape)
             print(memoria_np_canal)
 
@@ -529,3 +532,119 @@ class rigol(Instrument):
  
         return time,data
 
+###############################################################################
+# Keysight
+###############################################################################
+class Keysight(osciloscopio):
+    
+    def __init__(self,handler):
+        super().__init__(handler)
+        
+        SET_CH1_VDIV="CH1:SCA {}"
+        SET_CH2_VDIV="CH2:SCA {}"
+        GET_CH1_VDIV="CH1:SCA?"
+        GET_CH2_VDIV="CH2:SCA?"
+        
+        
+        self.read_termination = '\r'
+    
+
+    def set_chan_DIV(self,valor,canal):
+        if canal == 1: 
+            self.write(self.SET_CH1_VDIV.format(valor))
+        else:
+            self.write(self.SET_CH2_VDIV.format(valor))
+    
+    def get_chan_DIV(self, canal):
+        """ Retorna string del factor de division vertical del canal"""
+        if canal == 1: 
+            return self.query(self.GET_CH1_VDIV)
+        else:
+            return self.query(self.GET_CH2_VDIV)
+
+    def get_trace(self,canal, VERBOSE = 1):
+        
+        
+        # Pedimos la escala (volt/div)
+        self.write(":CHAN%s:SCAL?"%canal) 
+        scale_1_buff = self.read_raw()
+        scale = float(scale_1_buff)
+        print("Escala: ",scale)
+        
+        # Pedimos el offset de la señal
+        self.write(":CHAN%s:OFFS?"%canal) 
+        offset_1_buff = self.read_raw();
+        offset = float(offset_1_buff)
+        print("Offset: ",offset)
+        
+        # Pedimos la escala de tiempo de la señal
+        self.write(":TIM:SCAL?") 
+        time_1_buff = self.read_raw();
+        time = float(time_1_buff)
+        print("Base de tiempo: ",time)
+
+        self.write(":?")
+
+        
+        self.write(":WAV:POIN?")
+        print(self.read_bytes(8014, break_term=True))
+        
+        #self.write(":DIGitize CHANnel1")
+        #self.write(":WAVeform:SOURce CHANnel1")
+        #self.write(":WAVeform:FORMat BYTE")
+        #self.write(":WAVeform:POINts 1000")
+
+        self.write(':WAV:DATA?')##falta cambiar
+        memoria_canal = self.read_bytes(8014, break_term=True)
+        #self.write(':WAV:PRE?')
+        #memoria_canal.append(self.read_bytes)
+        with open("data.txt", "wb") as file:
+            file.writeADCgain_volt
+    
+    def Parsear_canal(self, memoria_canal, offset, scale, muestras, VERBOSE):
+        if VERBOSE:
+            print('Header en buffer:')
+            print(memoria_canal[0:14])
+        
+        # Leemos el "#4", el comienzo del header de los datos
+        # un char (int 8 bits) litle-endian
+        h  = np.frombuffer(memoria_canal, dtype=np.int8, count=1, offset=0)
+        f  = np.frombuffer(memoria_canal, dtype=np.int8, count=1, offset=1)
+        
+        # Leemos el resto del header, tamaño de los datos
+        nn  = np.frombuffer(memoria_canal, dtype=np.int8, count=4, offset=2)
+        
+        # Leemos la base de tiempo
+        tb = np.frombuffer(memoria_canal, dtype=np.uint8, count=4, offset=6) 
+        # Viene en big-endian (IEEE 754), convertimos a little-endian (revertimos el orden de los bytes)
+        t = tb.newbyteorder()
+        
+        # Leemos el numero de canal del que proviene (dado antes por "ACQ#:")
+        ch = np.frombuffer(memoria_canal, dtype=np.int8, count=1, offset=10)
+        
+        # Sacamos del buffer los 3 bytes reservados
+        r = np.frombuffer(memoria_canal, dtype=np.int8, count=3, offset=11)
+        
+        if VERBOSE:
+            print("Header decodificado:")
+            #print(str(chr(h)), str(chr(f)), str(chr(nn[0])), str(chr(nn[1])), str(chr(nn[2])), str(chr(nn[3])), t, ch)
+
+        # Ahora convertimos los valores del ADC a volts
+        #   is ADCgain the ADC mapping of 10 volts range onto 256 8-bit values
+        #   ... or is it really just a magic constant of 1/25?
+        ADCgain = 10.0/250;  #todo: why not 256?  data matches for 1/25
+        
+        # Leemos 4000 cuentas crudas del ADC
+        # Valores de 16 bits signados, pero el LSB es siempre 0, siendo realmente
+        # valores de 8 bits
+        memoria_np_canal = np.frombuffer(memoria_canal, dtype=np.int16, count=muestras, offset=14)
+        memoria_np_canal = memoria_np_canal/(2**8)
+        
+        v = offset + memoria_np_canal*scale*ADCgain;
+    
+        if VERBOSE:
+            pass
+            print(memoria_np_canal.shape)
+            print(memoria_np_canal)
+
+        return v

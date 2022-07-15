@@ -64,8 +64,8 @@ print("Esta conectado un %s"%MiOsciloscopio.INSTR_ID)
 
 
 # Pedimos el trazo de cada canal, la salida es en ([seg.],[volt])
-tiempo1,tension1=MiOsciloscopio.get_trace("1")
-tiempo2,tension2=MiOsciloscopio.get_trace("2")
+tiempo1,tension1=MiOsciloscopio.get_trace("1", VERBOSE=False)
+tiempo2,tension2=MiOsciloscopio.get_trace("2", VERBOSE=False)
 
 # Ploteamos los canales
 plt.plot(tiempo1,tension1,tiempo2,tension2)
