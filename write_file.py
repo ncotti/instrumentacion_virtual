@@ -17,7 +17,7 @@ import operador
 import json
 
 
-FILE_NAME = "telefono_numeral.json"
+FILE_NAME = "test.json"
 
 
 # Definimos una funcion para poder ejecutar un mensaje de error
